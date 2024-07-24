@@ -74,7 +74,7 @@ def main():
     st.sidebar.text("")
     st.sidebar.text("")
     st.sidebar.text("")
-    st.sidebar.image("Emory.png")
+    st.sidebar.image("Emory.png",width=190)
     st.sidebar.text("")
     st.sidebar.text("")
     # Times New Roman is the closest websafe font I can find to match the Emory logo
@@ -102,14 +102,16 @@ def main():
         with st.chat_message("user",avatar="💬"): st.markdown(query_edited)
         # get response from AI. To do: Better error handling here.
         json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history}
-        api_response = generate_tokens(json_payload)
         response_message = st.chat_message("bot",avatar="✨") 
         response_placeholder = response_message.empty()
         response_text_raw = ""
-        for token in api_response:
-            response_text_raw += token
-            response_text_edited = format_latex(response_text_raw)
-            response_placeholder.markdown(response_text_edited)
+        api_response = generate_tokens(json_payload)
+        with response_placeholder, st.spinner("Thinking..."):
+            for token in api_response:
+                response_text_raw += token
+                response_text_edited = format_latex(response_text_raw)
+                response_placeholder.markdown(response_text_edited)
+        response_placeholder.markdown(response_text_edited)
         st.session_state.chat_history.append({"role":"user","content":query_edited})
         st.session_state.chat_history.append({"role":"assistant","content":response_text_edited})
 
