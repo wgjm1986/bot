@@ -11,30 +11,25 @@ from multiprocessing import Pool
 from datetime import datetime
 from pypdf import PdfReader
 import openai
-import faiss
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 
+import sqlite3
+import numpy as np
+
 client = openai.OpenAI()
 
 extensions = ["pdf","tex","txt","docx","pptx"]
 filenames = ['../syllabus.pdf'] \
-	+ [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)] \
-	+ [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
-	+ [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
-	+ [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)]
-	+ [filename for ext in extensions for filename in glob(f"../Textbook/**/*.{ext}",recursive=True)]
-
-# extensions = ["pdf"]
-# filenames = [filename for ext in extensions for filename in glob(f"../Module 1/**/*.{ext}",recursive=True)]
-
-# extensions = ["tex"]
-# filenames = [filename for ext in extensions for filename in glob(f"../Module 1/Week 4 - Sep 19 - Evidence on returns to active strategies/*.{ext}",recursive=True)]
-
-# extensions = ["pdf"]
-# filenames = [filename for ext in extensions for filename in glob(f"../Exam */**/*.{ext}",recursive=True)]
+    + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
+# filenames = ['../syllabus.pdf'] \
+# 	+ [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)] \
+# 	+ [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
+# 	+ [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
+# 	+ [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)]
+# 	+ [filename for ext in extensions for filename in glob(f"../Textbook/**/*.{ext}",recursive=True)]
 
 def get_slide_text(slide):
 	slide_text_chunks = []
@@ -46,29 +41,27 @@ def get_slide_text(slide):
 def get_document_text(file_path):
 	print(file_path)
 	extension = file_path[-3:]
-	match extension:
-		case "txt" | "tex":
-			with open(file_path, 'r') as file:
-				document_text = file.read()
-		case "pdf":
-			document_text = ""
-			pdf = PdfReader(file_path)
-			for page in pdf.pages:
-				try:
-					document_text += page.extract_text() + "\n\n"
-					# document_text += page.extract_text(extraction_mode="layout") + "\n\n"
-				except:
-					print("PDF read failure: " + file_path)
-					continue
-		case "docx":
-			doc = docx.Document(file_path)
-			document_text = '\n\n'.join([p.text for p in doc.paragraphs])
-		case "pptx":
-			pres = pptx.Presentation(file_path)
-			document_text = '\n\n'.join([get_slide_text(slide) for slide in pres.slides])
-		case _:
-			print("Unsupported file type: " + file_path)
-			return
+	if extension == "txt" or extension == "tex":
+		with open(file_path, 'r') as file:
+			document_text = file.read()
+	elif extension == "pdf":
+		document_text = ""
+		pdf = PdfReader(file_path)
+		for page in pdf.pages:
+			try:
+				document_text += page.extract_text() + "\n\n"
+				# document_text += page.extract_text(extraction_mode="layout") + "\n\n"
+			except:
+				print("PDF read failure: " + file_path)
+	elif extension == "docx":
+		doc = docx.Document(file_path)
+		document_text = '\n\n'.join([p.text for p in doc.paragraphs])
+	elif extension == "pptx":
+		pres = pptx.Presentation(file_path)
+		document_text = '\n\n'.join([get_slide_text(slide) for slide in pres.slides])
+	else:
+		print("Unsupported file type: " + file_path)
+		return
 	if document_text and document_text != "":
 		# print("success: " + file_path)
 		if re.match("Exam|exam|Midterm|midterm",file_path):
@@ -93,35 +86,61 @@ def get_document_text(file_path):
 		print("failure: " + file_path)
 		return
 
+db_temp_path = 'my_db_tmp.db'
+if os.path.exists(db_temp_path):
+        os.remove(db_temp_path)
+        print(f"Deleted existing database file: {db_temp_path}")
+conn = sqlite3.connect(db_temp_path)
+cursor = conn.cursor()
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS documents (
+        doc_id INTEGER PRIMARY KEY,
+        file_path TEXT,
+        description TEXT
+    )
+''')
+conn.commit()
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS chunks (
+        id INTEGER PRIMARY KEY,
+        doc_id INTEGER,
+        chunk_text TEXT,
+        embedding BLOB,
+        FOREIGN KEY(doc_id) REFERENCES documents(doc_id)
+    )
+''')
+conn.commit()
+
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, add_start_index=True)
+
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
-with Pool(processes=7) as pool:
- 	# documents,filenames = zip(*pool.map(get_document_text,filenames))
- 	doc_dicts = pool.map(get_document_text,filenames)
-# documents = []
-# for filename in filenames:
-# 	documents.append( get_document_text(filename) )
-doc_dicts = [doc_dict for doc_dict in doc_dicts if doc_dict is not None]
-doc_dicts = [doc_dict for doc_dict in doc_dicts if type(doc_dict['document_text']) == str]
+for filename in filenames:
+    doc_dict = get_document_text(filename)
+    if not doc_dict: continue
+    if type(doc_dict['document_text']) is not str: continue
+    chunks = text_splitter.split_text( doc_dict['document_text'] )
+    chunks = [chunk for chunk in chunks if re.search('[A-Za-z]',chunk)]
+    for chunk in chunks: chunk = re.sub('\t',' ',chunk)
+    for chunk in chunks: chunk = re.sub(' +',' ',chunk)
+    if not chunks: continue
+    # Add this file to the table of files
+    cursor.execute('''
+        INSERT INTO documents (file_path, description)
+        VALUES (?, ?)
+    ''', (filename, "add description"))
+    doc_id = cursor.lastrowid
+    for chunk in chunks:
+        # Add each chunk and embeddings into the table of chunks
+        embedding = openai.embeddings.create(model="text-embedding-ada-002",input=chunk).data[0].embedding
+        embedding_bytes = np.array( embedding ).tobytes()
+        cursor.execute('''
+            INSERT INTO chunks (doc_id, chunk_text,embedding) VALUES (?, ?, ?)
+        ''', (doc_id, chunk, embedding_bytes) )
+    # For a small database like the current one it might be faster to keep all changes in memory and commit outside the loop,
+    # but at some level of scale it is faster to do it inside.
+    conn.commit()
 
-documents = [doc_dict['document_text'] for doc_dict in doc_dicts]
-metadatas = [doc_dict['metadata'] for doc_dict in doc_dicts]
-print(f"Num total documents: {len(documents)}")
-documents = [d for d in documents if type(d) == str]
-print(f"Num good documents: {len(documents)}")
+conn.close()
 
-# print(f"Serializing documents: {datetime.now():%H:%M:%S}")
-# with open("./serializations/documents.json",'w') as documents_output:
-# 	json.dump(documents, documents_output)
-
-print(f"Chunking text: {datetime.now():%H:%M:%S}")
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=0, add_start_index=True)
-chunks = text_splitter.split_documents( text_splitter.create_documents( texts=documents, metadatas=metadatas ) )
-
-chunks = [chunk for chunk in chunks if re.search('[A-Za-z]',chunk.page_content)]
-for chunk in chunks: chunk.page_content = re.sub('\t',' ',chunk.page_content)
-for chunk in chunks: chunk.page_content = re.sub(' +',' ',chunk.page_content)
-for chunk in chunks: chunk.page_content = "From file " + chunk.metadata['file_path'] + ": " + chunk.page_content
-
-print(f"Building and serializing vector database: {datetime.now():%H:%M:%S}")
-db = FAISS.from_documents(chunks, OpenAIEmbeddings() )
-db.save_local("langchain_embeddings")
+## Now that the database construction has ended successfully, overwrite the existing one (if present)
+os.rename(db_temp_path,'my_db.db')

@@ -1,56 +1,61 @@
 from flask import Flask, request, jsonify, Response, stream_with_context
-from openai import OpenAI
 from langchain_openai import OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.retrievers import BM25Retriever
 from pypdf import PdfReader
 import re
 import json
+import openai
+import faiss, sqlite3
+import numpy as np
 
-# 0. Create dictionary of documents that the students might ask about.
-# This is identical to the dictionary created in the front-end code to populate the dropdown menu.
-document_file_paths = {
-    "Fall 2022 midterm 1"    : '../Exam 1/Fall 2022 midterm 1 - with answers.pdf',
-    "Fall 2022 midterm 2"    : '../Exam 2/Fall 2022 midterm 2 - with answers.pdf',
-    "Fall 2022 final exam"    : '../Exam 3/Fall 2022 final exam - with answers.pdf',
-    "Fall 2023 midterm 1"    : '../Exam 1/Fall 2023 midterm 1 - with answers.pdf',
-    "Fall 2023 midterm 2"    : '../Exam 2/Fall 2023 midterm 2 - with answers.pdf',
-    "Fall 2023 final exam"    : '../Exam 3/Fall 2023 final exam - with answers.pdf',
-    "Midterm 2 past questions" : '../Exam 2/past exam questions.pdf',
-    "Final exam past questions" : '../Exam 3/Other past exam questions.pdf',
-    "Module 1: Background"    : '../Module 1/Week 0 - Background information/Background.pdf',
-    "Module 1: Investment returns, portfolios, and indexes" : '../Module 1/Week 1 - Aug 29 - Investment returns, portfolios, indexes/Investment returns, portfolios, and indexes.pdf',
-    "Module 1: Fund structures and performance measures" : '../Module 1/Week 2 - Sep 5 - Fund structures and performance measures/Funds.pdf',
-    "Module 1: Valuation theory" : '../Module 1/Week 3 - Sep 12 - Valuation theory/Valuation theory.pdf',
-    "Module 1: Evidence on returns to active strategies" : '../Module 1/Week 4 - Sep 19 - Evidence on returns to active strategies/Evidence on returns to active strategies.pdf',
-    "Module 2: Diversification and portfolio optimization" : '../Module 2/Week 6 - Oct 3 - Diversification and portfolio optimization/Diversification and portfolio optimization.pdf',
-    "Module 2: Portfolio statistics and the CAPM" : '../Module 2/Week 8 - Oct 17 - Portfolio statistics and CAPM/Portfolio statistics and CAPM.pdf',
-    "Module 2: Investment styles and the CAPM" : '../Module 2/Week 9 - Oct 24 - Investment styles and the CAPM/Investment styles and the CAPM.pdf',
-    "Module 3: Short sales and dollar-neutral strategies" : '../Module 3/Week 11 - Nov 7 - Short sales and dollar-neutral strategies/Short sales and dollar-neutral strategies.pdf',
-    "Module 3: Factor models" : '../Module 3/Week 12 - Nov 14 - Factor models/Factor models.pdf',
-    "Module 3: The profitability factor" : '../Module 3/Week 13 - Nov 21 - The profitability factor/Profitability.pdf',
-    "Module 3: Buffet's Alpha" : '../Module 3/Week 13 - Nov 21 - The profitability factor/Buffetts Alpha.pdf'
-    }
+# 0. Create dictionary of course documents that the LLM can request.
+conn = sqlite3.connect('my_db.db')
+cursor = conn.cursor()
+cursor.execute('SELECT file_path FROM documents')
+data = cursor.fetchall()
+document_file_paths = [row[0] for row in data]
 no_selection_text = "No selection."
 
-# 1. Load prebuilt vector database of embeddings of chunks from course content.
-doc_db = FAISS.load_local("langchain_embeddings", OpenAIEmbeddings(), allow_dangerous_deserialization=True)
-# 2. Set up function to retrieve context from the vector store.
+# 1. Load vector embeddings and set up function to retrieve context
+conn = sqlite3.connect('my_db.db')
+cursor = conn.cursor()
+cursor.execute('SELECT id, embedding FROM chunks')
+data = cursor.fetchall()
+ids = [row[0] for row in data]
+embeddings = np.array([np.frombuffer(row[1]) for row in data])
+conn.close()
+# Calculate length of each individual embedding
+dimension = embeddings.shape[1]
+# Use inner product, but not cosine similarity (I conjecture that inner product is better for our use case)
+index = faiss.IndexFlatIP(dimension)
+index.add(embeddings)
+# if desired we can write the index to a file; this may become valuable at some level of scale
+# faiss.write_index(index,filename)
+# To do: I would like to loop over the keywords and do a semantic search on each separately, 
+# and then rerank to prioritize those matching earlier keywords, those from lecture materials as opposed to outside materials, and those with higher match quality,
+# but need to think about the exact way to encode all of that.
 def retrieve_context(keywords):
     keywords_list = ', '.join(keywords)
-    # Retrieve a broad set of results
-    semantic_retriever = doc_db.as_retriever(search_kwargs={'k':20})
-    semantic_search_results = semantic_retriever.invoke(keywords_list)
-    # Narrow it down with a reranker
-    rerank_retriever = BM25Retriever.from_documents( semantic_search_results , search_kwargs={'k':10} )
-    rerank_results = rerank_retriever.invoke(keywords_list)
-    # Flatten everything to a string that can be stuffed into the prompt
-    context = '\n\n'.join([document.page_content for document in rerank_results])
+    print("Keywords:",keywords_list)
+    query_embedding = np.array([ openai.embeddings.create(model="text-embedding-ada-002",input=keywords_list).data[0].embedding ])
+    distances_array, indices_array = index.search(query_embedding, 10)
+    distances = distances_array[0]
+    indices = indices_array[0]
+    retrieved_ids = [ids[index] for index in indices]
+    conn = sqlite3.connect('my_db.db')
+    cursor = conn.cursor()
+    placeholders = ','.join('?' for _ in retrieved_ids)
+    query = f'SELECT id, chunk_text FROM chunks WHERE id IN ({placeholders})'
+    cursor.execute(query,retrieved_ids)
+    data = cursor.fetchall()
+    conn.close()
+    context = '\n\n'.join([row[1] for row in data])
+    print("Context:",context)
     return context
 
-# 3. Initialize LLM client
-client = OpenAI()
-# 4. Set up function to build prompt and query LLM
+# 2. Initialize LLM client and set up function to build prompt and query LLM
+client = openai.OpenAI()
 def query_LLM(query,chat_history_messages):
 
     # Gather context.
@@ -64,8 +69,7 @@ def query_LLM(query,chat_history_messages):
     You should reply with the name of the course document that would be most useful to the LLM in answering the student's question. \
     If you do not select a document, reply with \""+no_selection_text+"\"." 
     helper_query_system_string += "\n\nHere is a list of the course documents that you can request: \n"
-    for key in document_file_paths.keys():
-        helper_query_system_string += key+'\n'
+    for path in document_file_paths: helper_query_system_string += path + '\n'
 
     user_messages = [{"role":"user","content":"Here is an earlier question the student asked: " + message['content']} for message in chat_history_messages if message['role']=="user"]
 
@@ -77,13 +81,13 @@ def query_LLM(query,chat_history_messages):
         stream=False
     ).choices[0].message.content
     document_choice = helper_query_response.strip().rstrip('.')
+    print(document_choice)
 
     context_string = ""
     # Import and stuff the first relevant document
-    if document_choice != no_selection_text:
+    if document_choice != no_selection_text and document_choice != no_selection_text.rstrip('.'):
         try:
-            file_path = document_file_paths[document_choice]
-            pdf = PdfReader(file_path)
+            pdf = PdfReader(document_choice)
             document = '\n\n'.join([page.extract_text() for page in pdf.pages])
             context_string += "Here is the course document that you already selected as being most useful to answer the student's question:\n"+document_choice+'\n'+document+'\n'
         except KeyError:
@@ -91,10 +95,13 @@ def query_LLM(query,chat_history_messages):
 
     helper_query_string_2 = "I am teaching a college finance course. \
     A student has asked a question. \
-    You are helping me build a prompt that I can give you, which you will then use to answer the question. \
+    You cannot speak to the student, so you will not try to answer the question. \
+    Instead, you are helping me build a prompt to a different LLM that will answer the question. \
+    This LLM does not know anything about my course except what I provide in the prompt. \
     Below I will give you the question, your conversation history with the student, and possibly a course document that you have already selected as being useful to answer the question. \
-    Now I want you to reply with a list of keywords, separated by semicolons, that I should use in a semantic search through my course documents to provide you with additional context for the question."
-    helper_query_messages = [{"role":"system","content":helper_query_string_2+context_string}] + chat_history_messages + [{"role":"user","content":query}]
+    Now I want you to reply with a list of four or fewer keywords that I should use in a semantic search through my course documents to provide the LLM with additional context for the question. \
+    Start your answer with the first keyword, not with any kind of label, and separate each keyword in the list with a semicolon."
+    helper_query_messages = [{"role":"system","content":helper_query_string_2+context_string}] + user_messages + [{"role":"user","content":"Here is the most recent question the student asked. Remember, do not try to answer the question, but instead reply with keywords that could be used for a semantic search to give useful information to an LLM trying to answer the question. \n" + query}]
     helper_query_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=helper_query_messages,
@@ -135,7 +142,7 @@ def query_LLM(query,chat_history_messages):
         if chunk_content:
             yield json.dumps({"token": chunk_content})+'\n'
 
-# 5. Flask
+# 3. Flask code
 
 # Set up Flask server
 app = Flask(__name__)
