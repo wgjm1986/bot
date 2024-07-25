@@ -22,14 +22,14 @@ import numpy as np
 client = openai.OpenAI()
 
 extensions = ["pdf","tex","txt","docx","pptx"]
-filenames = ['../syllabus.pdf'] \
-    + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
 # filenames = ['../syllabus.pdf'] \
-# 	+ [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)] \
-# 	+ [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
-# 	+ [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
-# 	+ [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)]
-# 	+ [filename for ext in extensions for filename in glob(f"../Textbook/**/*.{ext}",recursive=True)]
+#   + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
+filenames = ['../syllabus.pdf'] \
+    + [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)] 
+#   + [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
+#   + [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
+#   + [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)]
+#   + [filename for ext in extensions for filename in glob(f"../Textbook/**/*.{ext}",recursive=True)]
 
 def get_slide_text(slide):
 	slide_text_chunks = []
@@ -111,13 +111,14 @@ cursor.execute('''
 ''')
 conn.commit()
 
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100, add_start_index=True)
+text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50, add_start_index=True)
 
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
 for filename in filenames:
     doc_dict = get_document_text(filename)
     if not doc_dict: continue
     if type(doc_dict['document_text']) is not str: continue
+    if os.path.getsize(filename) > 1e6: continue
     chunks = text_splitter.split_text( doc_dict['document_text'] )
     chunks = [chunk for chunk in chunks if re.search('[A-Za-z]',chunk)]
     for chunk in chunks: chunk = re.sub('\t',' ',chunk)
