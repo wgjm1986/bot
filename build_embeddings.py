@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 client = openai.OpenAI()
 
-extensions = ["pdf","tex","txt","docx","pptx"]
+extensions = ["pdf","tex","docx","pptx"]
 # filenames = ['../syllabus.pdf'] \
 #   + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
 filenames = ['../syllabus.pdf'] \
