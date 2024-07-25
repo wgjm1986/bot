@@ -108,8 +108,8 @@ def query_LLM(query,chat_history_messages):
     Instead, you are helping me build a prompt to a different LLM that will answer the question. \
     This LLM does not know anything about my course except what I provide in the prompt. \
     Below I will give you the student's question, and their previous questions to the LLM. \
-    Then I will give you a list of course documents, where the first line is the file path of the document, and the next line is a short description of the document along with some keywords. \
-    You should reply with the file path of the course document that would be most useful to the LLM in answering the student's question. \
+    Then I will give you a list of course documents, where the first line is the filename of the document, and the next line is a short description of the document along with some keywords. \
+    You should select a filename from the list that would be most useful to the LLM in answering the student's question, and reply with only that filename. \
     If you do not select a document, reply with \""+no_selection_text+"\"." 
     for document_description in document_descriptions: 
         if document_description['file_path'][-3:] != "txt":
@@ -117,7 +117,7 @@ def query_LLM(query,chat_history_messages):
 
     user_messages = [{"role":"user","content":"Here is an earlier question the student asked: " + message['content']} for message in chat_history_messages if message['role']=="user"]
 
-    helper_query_messages = [{"role":"system","content":helper_query_system_string}] + user_messages + [{"role":"user","content":"Here is the most recent question the student asked. Remember, do not try to answer the question, but instead reply with the name of a document that would be useful to an LLM trying to answer the question. \n" + query}]
+    helper_query_messages = [{"role":"system","content":helper_query_system_string}] + user_messages + [{"role":"user","content":"Here is the most recent question the student asked: " + query}]
     helper_query_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=helper_query_messages,
