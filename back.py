@@ -9,6 +9,49 @@ import openai
 import faiss, sqlite3
 import numpy as np
 
+def get_document_text(file_path):
+    extension = file_path[-3:]
+    if extension == "txt" or extension == "tex":
+        with open(file_path, 'r') as file:
+            document_text = file.read()
+    elif extension == "pdf":
+        document_text = ""
+        pdf = PdfReader(file_path)
+        for page in pdf.pages:
+            try:
+                document_text += page.extract_text() + "\n\n"
+                # document_text += page.extract_text(extraction_mode="layout") + "\n\n"
+            except:
+                print("PDF read failure: " + file_path)
+    elif extension == "docx":
+        doc = docx.Document(file_path)
+        document_text = '\n\n'.join([p.text for p in doc.paragraphs])
+    elif extension == "pptx":
+        pres = pptx.Presentation(file_path)
+        document_text = '\n\n'.join([get_slide_text(slide) for slide in pres.slides])
+    else:
+        print("Unsupported file type: " + file_path)
+        return
+    if document_text and document_text != "":
+        # print("success: " + file_path)
+        if re.match("Exam|exam|Midterm|midterm",file_path):
+            source_type = "Tests, midterms, and exams from past years"
+        elif re.match("Module",file_path):
+            source_type = "Teaching materials"
+        elif re.match("Textbook",file_path):
+            source_type = "Textbook"
+        elif re.match("Transcripts",file_path):
+            source_type = "Transcripts of class sessions"
+        elif re.match("Discussion",file_path):
+            source_type = "Media articles"
+        else:
+            source_type = "Other"
+        return document_text
+    else:
+        print("failure: " + file_path)
+        return
+
+
 # 0. Create dictionary of course documents that the LLM can request.
 conn = sqlite3.connect('my_db.db')
 cursor = conn.cursor()
@@ -68,7 +111,9 @@ def query_LLM(query,chat_history_messages):
     Then I will give you a list of course documents, where the first line is the file path of the document, and the next line is a short description of the document along with some keywords. \
     You should reply with the file path of the course document that would be most useful to the LLM in answering the student's question. \
     If you do not select a document, reply with \""+no_selection_text+"\"." 
-    for document_description in document_descriptions: helper_query_system_string += document_description['file_path'] + '\n' + document_description['description'] + '\n\n'
+    for document_description in document_descriptions: 
+        if document_description['file_path'][-3:] != "txt":
+            helper_query_system_string += document_description['file_path'] + '\n' + document_description['description'] + '\n\n'
 
     user_messages = [{"role":"user","content":"Here is an earlier question the student asked: " + message['content']} for message in chat_history_messages if message['role']=="user"]
 
@@ -85,12 +130,8 @@ def query_LLM(query,chat_history_messages):
     context_string = ""
     # Import and stuff the first relevant document
     if document_choice != no_selection_text and document_choice != no_selection_text.rstrip('.'):
-        try:
-            pdf = PdfReader(document_choice)
-            document = '\n\n'.join([page.extract_text() for page in pdf.pages])
-            context_string += "Here is the course document that you already selected as being most useful to answer the student's question:\n"+document_choice+'\n'+document+'\n'
-        except KeyError:
-            pass
+        document_text = get_document_text(document_choice)
+        context_string += "Here is the course document that you already selected as being most useful to answer the student's question:\n"+document_choice+'\n'+document_text+'\n'
 
     helper_query_string_2 = "I am teaching a college finance course. \
     A student has asked a question. \
