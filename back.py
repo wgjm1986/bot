@@ -12,7 +12,7 @@ class DB_Search:
 
     # Load the filenames and LLM-descriptions of all training documents from the database into a dictionary
     def load_documents(self):
-        conn = sqlite3.connect('my_db.db')
+        conn = sqlite3.connect(db_file)
         cursor = conn.cursor()
         cursor.execute('SELECT file_path, description FROM documents')
         data = cursor.fetchall()
@@ -51,7 +51,7 @@ class DB_Search:
 
     # Load the ids and vector embddings of the text chunks that were built from the training data, but NOT the text itself to avoid overloading memory.
     def load_embeddings(self):
-        conn = sqlite3.connect('my_db.db')
+        conn = sqlite3.connect(db_file)
         cursor = conn.cursor()
         cursor.execute('SELECT id, embedding FROM chunks')
         data = cursor.fetchall()
@@ -77,7 +77,7 @@ class DB_Search:
             similarities[chunk_id] = np.dot( embedding, query_embedding ) # / ( np.linalg.norm( embedding ) * np.linalg.norm( query_embedding ) )
         top_k_ids = sorted(similarities, key=similarities.get, reverse=True)[:k]
         # retrieve the actual text chunks from the database
-        conn = sqlite3.connect('my_db.db')
+        conn = sqlite3.connect(db_file)
         cursor = conn.cursor()
         placeholders = ','.join('?' for _ in top_k_ids)
         query = f'SELECT id, chunk_text FROM chunks WHERE id IN ({placeholders})'
@@ -90,7 +90,7 @@ class DB_Search:
         return context
 
 # Initialize the class used for database search.
-db_search = DB_Search("my_db.db")
+db_search = DB_Search('/efs/FIN323.db')
 
 # 2. Initialize LLM client and set up function to build prompt and query LLM
 client = openai.OpenAI()

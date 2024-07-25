@@ -25,15 +25,15 @@ from concurrent.futures import ThreadPoolExecutor
 client = openai.OpenAI()
 
 extensions = ["pdf","tex","docx","pptx"]
-# filenames = ['../syllabus.pdf'] \
-#   + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
-filenames = ['../syllabus.pdf'] \
-    + [filename for ext in extensions for filename in glob(f"../Exam */**/*.{ext}",recursive=True)] \
-    + [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)]
-#   + [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"../Textbook/**/*.{ext}",recursive=True)]
+# filenames = ['/efs/FIN323/syllabus.pdf'] \
+#   + [filename for filename in glob(f"/efs/FIN323/Module 2/**/*.pdf",recursive=True)]
+filenames = ['/efs/FIN323/syllabus.pdf'] \
+    + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Exam */**/*.{ext}",recursive=True)] \
+    + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Module */**/*.{ext}",recursive=True)]
+#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Discussion/**/*.{ext}",recursive=True)] \
+#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Transcripts/**/*.{ext}",recursive=True)] \
+#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Corporate finance slides/**/*.{ext}",recursive=True)] \
+#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Textbook/**/*.{ext}",recursive=True)]
 
 
 
@@ -88,7 +88,7 @@ def get_document_text(file_path):
         print("failure: " + file_path)
         return
 
-db_temp_path = 'my_db_tmp.db'
+db_temp_path = '/efs/FIN323_tmp.db'
 if os.path.exists(db_temp_path):
         os.remove(db_temp_path)
         print(f"Deleted existing database file: {db_temp_path}")
@@ -185,4 +185,4 @@ with ThreadPoolExecutor(max_workers=7) as executor:
 print(f"Finished importing documents: {datetime.now():%H:%M:%S}")
 
 ## Now that the database construction has ended successfully, overwrite the existing one (if present)
-os.rename(db_temp_path,'my_db.db')
+os.rename(db_temp_path,'/efs/FIN323.db')
