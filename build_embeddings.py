@@ -13,8 +13,6 @@ from pypdf import PdfReader
 import openai
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_openai import OpenAIEmbeddings
-from langchain_community.vectorstores import FAISS
 
 import sqlite3
 import numpy as np
@@ -140,6 +138,7 @@ def process_file(filename):
     # Get description
     description_prompt = "Please reply with a short description for the document below (30 words or fewer). Your description does not need to be a complete sentence. It should consist only of ASCII characters with no tabs, newlines, or form feeds. Be sure to mention any authors, and the year of publication, is you can find them. If the document is an exam, specify the semester, and which exam it was (first midterm, second midterm, final exam, etc.). Then at the end of the same line, list 5 or fewer keywords for the document's content."
     client = openai.OpenAI()
+    if len(document_text) > 5000: document_text = document_text[0:5000]
     description_messages = [{"role":"system","content":description_prompt} , {"role":"user","content":document_text}]
     description = client.chat.completions.create(
         model="gpt-4o-mini",
