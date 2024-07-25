@@ -118,15 +118,23 @@ text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
 
 def process_file(filename):
-    if os.path.getsize(filename) > 2e6: return
+    if os.path.getsize(filename) > 2e6:
+        print(filename+": above 2M, skipping")
+        return
     document_text = get_document_text(filename)
-    if not document_text: return
-    if type(document_text) is not str: return
+    if not document_text:
+        print(filename+"get_document_text returned null, skipping")
+        return
+    if type(document_text) is not str:
+        print(filename+"get_document_text returned non-string, skipping")
+        return
     chunks = text_splitter.split_text( document_text )
     chunks = [chunk for chunk in chunks if re.search('[A-Za-z]',chunk)]
     for chunk in chunks: chunk = re.sub('\t',' ',chunk)
     for chunk in chunks: chunk = re.sub(' +',' ',chunk)
-    if not chunks: return
+    if not chunks: 
+        print(filename+"get_document_text returned no text chunks, skipping")
+        return
     # Get description
     description_prompt = "Please reply with a short description for the document below (30 words or fewer). Your description does not need to be a complete sentence. It should consist only of ASCII characters with no tabs, newlines, or form feeds. Be sure to mention any authors, and the year of publication, is you can find them. If the document is an exam, specify the semester, and which exam it was (first midterm, second midterm, final exam, etc.). Then at the end of the same line, list 5 or fewer keywords for the document's content."
     client = openai.OpenAI()
