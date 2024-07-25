@@ -19,6 +19,7 @@ from langchain_community.vectorstores import FAISS
 import sqlite3
 import numpy as np
 
+import concurrent
 from concurrent.futures import ThreadPoolExecutor
 
 client = openai.OpenAI()
@@ -27,8 +28,8 @@ extensions = ["pdf","tex","docx","pptx"]
 # filenames = ['../syllabus.pdf'] \
 #   + [filename for filename in glob(f"../Module 2/**/*.pdf",recursive=True)]
 filenames = ['../syllabus.pdf'] \
-    + [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)] \
-    + [filename for ext in extensions for filename in glob(f"../Exam */**/*.{ext}",recursive=True)]
+    + [filename for ext in extensions for filename in glob(f"../Exam */**/*.{ext}",recursive=True)] \
+    + [filename for ext in extensions for filename in glob(f"../Module */**/*.{ext}",recursive=True)]
 #   + [filename for ext in extensions for filename in glob(f"../Discussion/**/*.{ext}",recursive=True)] \
 #   + [filename for ext in extensions for filename in glob(f"../Transcripts/**/*.{ext}",recursive=True)] \
 #   + [filename for ext in extensions for filename in glob(f"../Corporate finance slides/**/*.{ext}",recursive=True)] \
@@ -53,7 +54,7 @@ def get_document_text(file_path):
     elif extension == "pdf":
         document_text = ""
         pdf = PdfReader(file_path)
-        for page in pdf.pages:
+        for page in pdf.pages[0:10]:
             try:
                 document_text += page.extract_text() + "\n\n"
                 # document_text += page.extract_text(extraction_mode="layout") + "\n\n"
@@ -118,8 +119,9 @@ text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
 
 def process_file(filename):
-    if os.path.getsize(filename) > 2e6:
-        print(filename+": above 2M, skipping")
+    # This is not only to save time, but also to cut down on token usage
+    if os.path.getsize(filename) > 1e6:
+        print(filename+": above 1M, skipping")
         return
     document_text = get_document_text(filename)
     if not document_text:
@@ -148,17 +150,21 @@ def process_file(filename):
     # print(filename)
     # print(description)
     # Add this file to the table of files
-    conn = sqlite3.connect(db_temp_path)
+    embedding_bytes_list = []
+    for chunk in chunks:
+        # Add each chunk and embeddings into the table of chunks
+        embedding = openai.embeddings.create(model="text-embedding-ada-002",input=chunk).data[0].embedding
+        embedding_bytes = np.array( embedding ).tobytes()
+        embedding_bytes_list.append( embedding_bytes )
+    # Write to database: save this for the end to keep the lock as brief as possible
+    conn = sqlite3.connect(db_temp_path,timeout=10)
     cursor = conn.cursor()
     cursor.execute('''
         INSERT INTO documents (file_path, description)
         VALUES (?, ?)
     ''', (filename, description))
     doc_id = cursor.lastrowid
-    for chunk in chunks:
-        # Add each chunk and embeddings into the table of chunks
-        embedding = openai.embeddings.create(model="text-embedding-ada-002",input=chunk).data[0].embedding
-        embedding_bytes = np.array( embedding ).tobytes()
+    for chunk, embedding_bytes in zip(chunks, embedding_bytes_list):
         cursor.execute('''
             INSERT INTO chunks (doc_id, chunk_text,embedding) VALUES (?, ?, ?)
         ''', (doc_id, chunk, embedding_bytes) )
@@ -167,7 +173,14 @@ def process_file(filename):
     print("Complete: " + filename)
 
 with ThreadPoolExecutor(max_workers=7) as executor:
-    executor.map(process_file, filenames)
+    # executor.map(process_file, filenames)
+    futures = {executor.submit(process_file, filename): filename for filename in filenames}
+    for future in concurrent.futures.as_completed(futures):
+        filename = futures[future]
+        try:
+            future.result()  # This will raise an exception if the task raised one
+        except Exception as exc:
+            print(f'{filename} generated an exception: {exc}')
 
 print(f"Finished importing documents: {datetime.now():%H:%M:%S}")
 
