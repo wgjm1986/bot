@@ -12,9 +12,9 @@ import numpy as np
 # 0. Create dictionary of course documents that the LLM can request.
 conn = sqlite3.connect('my_db.db')
 cursor = conn.cursor()
-cursor.execute('SELECT file_path FROM documents')
+cursor.execute('SELECT file_path, description FROM documents')
 data = cursor.fetchall()
-document_file_paths = [row[0] for row in data]
+document_descriptions = [ { "file_path":row[0] , "description":row[1] } for row in data ]
 no_selection_text = "No selection."
 
 # 1. Load vector embeddings and set up function to retrieve context
@@ -65,11 +65,10 @@ def query_LLM(query,chat_history_messages):
     Instead, you are helping me build a prompt to a different LLM that will answer the question. \
     This LLM does not know anything about my course except what I provide in the prompt. \
     Below I will give you the student's question, and their previous questions to the LLM. \
-    Then I will give you a list of course documents. \
-    You should reply with the name of the course document that would be most useful to the LLM in answering the student's question. \
+    Then I will give you a list of course documents, where the first line is the file path of the document, and the next line is a short description of the document along with some keywords. \
+    You should reply with the file path of the course document that would be most useful to the LLM in answering the student's question. \
     If you do not select a document, reply with \""+no_selection_text+"\"." 
-    helper_query_system_string += "\n\nHere is a list of the course documents that you can request: \n"
-    for path in document_file_paths: helper_query_system_string += path + '\n'
+    for document_description in document_descriptions: helper_query_system_string += document_description['file_path'] + '\n' + document_description['description'] + '\n\n'
 
     user_messages = [{"role":"user","content":"Here is an earlier question the student asked: " + message['content']} for message in chat_history_messages if message['role']=="user"]
 
