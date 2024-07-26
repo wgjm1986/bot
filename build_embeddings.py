@@ -1,19 +1,12 @@
-import sys
-
-import docx
-import pptx
-import re
-import csv
-import os
+import sys re os
 
 from glob import glob
 from multiprocessing import Pool
 from datetime import datetime
-from pypdf import PdfReader
-import openai
 
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
+import openai
 import sqlite3
 import numpy as np
 
@@ -33,8 +26,6 @@ filenames = ['/efs/FIN323/syllabus.pdf'] \
 #   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Corporate finance slides/**/*.{ext}",recursive=True)] \
 #   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Textbook/**/*.{ext}",recursive=True)]
 
-
-
 print("Num files: " + str(len(filenames)))
 
 def get_slide_text(slide):
@@ -43,48 +34,6 @@ def get_slide_text(slide):
         if hasattr(shape,"text"):
             slide_text_chunks.append(shape.text+' ')
     return '\n'.join(slide_text_chunks)
-
-def get_document_text(file_path):
-    extension = file_path[-3:]
-    if extension == "txt" or extension == "tex":
-        with open(file_path, 'r') as file:
-            document_text = file.read()
-    elif extension == "pdf":
-        document_text = ""
-        pdf = PdfReader(file_path)
-        for page in pdf.pages[0:10]:
-            try:
-                document_text += page.extract_text() + "\n\n"
-                # document_text += page.extract_text(extraction_mode="layout") + "\n\n"
-            except:
-                print("PDF read failure: " + file_path)
-    elif extension == "docx":
-        doc = docx.Document(file_path)
-        document_text = '\n\n'.join([p.text for p in doc.paragraphs])
-    elif extension == "pptx":
-        pres = pptx.Presentation(file_path)
-        document_text = '\n\n'.join([get_slide_text(slide) for slide in pres.slides])
-    else:
-        print("Unsupported file type: " + file_path)
-        return
-    if document_text and document_text != "":
-        # print("success: " + file_path)
-        if re.match("Exam|exam|Midterm|midterm",file_path):
-            source_type = "Tests, midterms, and exams from past years"
-        elif re.match("Module",file_path):
-            source_type = "Teaching materials"
-        elif re.match("Textbook",file_path):
-            source_type = "Textbook"
-        elif re.match("Transcripts",file_path):
-            source_type = "Transcripts of class sessions"
-        elif re.match("Discussion",file_path):
-            source_type = "Media articles"
-        else:
-            source_type = "Other"
-        return document_text
-    else:
-        print("failure: " + file_path)
-        return
 
 db_temp_path = '/efs/FIN323_tmp.db'
 if os.path.exists(db_temp_path):
@@ -135,7 +84,7 @@ def process_file(filename):
     if not chunks: 
         print(filename+"get_document_text returned no text chunks, skipping")
         return
-    # Get description
+    # Get document description
     description_prompt = "Please reply with a short description for the document below (30 words or fewer). Your description does not need to be a complete sentence. It should consist only of ASCII characters with no tabs, newlines, or form feeds. Be sure to mention any authors, and the year of publication, is you can find them. If the document is an exam, specify the semester, and which exam it was (first midterm, second midterm, final exam, etc.). Then at the end of the same line, list 5 or fewer keywords for the document's content."
     client = openai.OpenAI()
     if len(document_text) > 5000: document_text = document_text[0:5000]
@@ -171,15 +120,12 @@ def process_file(filename):
     conn.close()
     print("Complete: " + filename)
 
+# Note that exceptions thrown within this pool will NOT propagate back to the main process.
+# The filename that caused the error will just be missing from the final output.
+# To catch and display these errors requires much more complicated syntax.
+# What I should really do is handle and log exceptions within process_file().
 with ThreadPoolExecutor(max_workers=7) as executor:
-    # executor.map(process_file, filenames)
-    futures = {executor.submit(process_file, filename): filename for filename in filenames}
-    for future in concurrent.futures.as_completed(futures):
-        filename = futures[future]
-        try:
-            future.result()  # This will raise an exception if the task raised one
-        except Exception as exc:
-            print(f'{filename} generated an exception: {exc}')
+    executor.map(process_file, filenames)
 
 print(f"Finished importing documents: {datetime.now():%H:%M:%S}")
 
