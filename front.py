@@ -2,6 +2,7 @@ import streamlit as st
 import requests
 import json
 import re
+import sys
 
 # Function to clean up markdown delimiters that OpenAI uses but Streamlit doesn't understand.
 def format_latex(text):
@@ -13,8 +14,8 @@ def format_latex(text):
     return text
 
 # Generator to receive individual tokens from a stream as JSON, unpack them and yield just the text
-def generate_tokens(json_payload):
-    response = requests.post("http://localhost:5000/get_response", json=json_payload, stream=True)
+def generate_tokens(json_payload,port_number):
+    response = requests.post(f"http://localhost:{port_number}/get_response", json=json_payload, stream=True)
     for line in response.iter_lines():
         if line:
             line_str = line.decode('utf-8')
@@ -28,7 +29,7 @@ def generate_tokens(json_payload):
 def main():
 
     # Use the full width of the page
-    st.set_page_config(page_title="FIN 323 Virtual TA",layout="wide",page_icon="Emory.ico")
+    st.set_page_config(page_title="Virtual TA",layout="wide",page_icon="Emory.ico")
     
     # Remove various Streamlit default page decorations:
     st.markdown("""
@@ -71,12 +72,23 @@ def main():
     st.sidebar.text("")
     st.sidebar.text("")
     # Times New Roman is the closest websafe font I can find to match the Emory logo
-    st.sidebar.markdown('<p style="text-align: center; color:#0033a0; font-family:Times New Roman, serif; font-size: 24px">FIN 323 Virtual TA</p>', unsafe_allow_html=True)
+    # course_number = course_data['number']
+    # st.sidebar.markdown(f'<p style="text-align: center; color:#0033a0; font-family:Times New Roman, serif; font-size: 24px">{course_number} Virtual TA</p>', unsafe_allow_html=True)
+
+    # Load dictionary of course info
+    with open('courses.json','r') as courses_file: course_dict = json.load(courses_file)
+    # Create reverse lookup dictionary
+    course_dict_reverse = { course['number']+": "+course['title'] : key for key,course in course_dict.items() }
+
+    with st.sidebar:
+        course_selection_description = st.selectbox("Choose your course:", list( course_dict_reverse.keys() ) )
+        course_selection_key = course_dict_reverse[course_selection_description]
+        course_selection = course_dict[course_selection_key]
 
     # If there is no chat history, display welcome message:
     if "chat_history" not in st.session_state:
-        welcome_message = """
-        Hello, human! I am the virtual TA for FIN 323, taught by Professor Mann.
+        welcome_message = f"""
+        Hello, human! I am the virtual TA for the course {course_selection['number']}: {course_selection['title']} at Goizueta.
         Currently, I am still in development, so you should carefully check my answers against what you have learned in class.
         However, I will do my very best to help answer your questions, so ask away!
         
@@ -85,9 +97,9 @@ def main():
         """
         st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
 
-    # Truncate chat history to last 3 messages.
-    if len(st.session_state.chat_history) > 3:
-        st.session_state.chat_history = st.session_state.chat_history[-3:]
+    # Truncate chat history to last 6 messages (three each from the student and the assistant).
+    if len(st.session_state.chat_history) > 6:
+        st.session_state.chat_history = st.session_state.chat_history[-6:]
 
     # Print chat history to screen.
     for message in st.session_state.chat_history:
@@ -104,15 +116,16 @@ def main():
         query_edited = format_latex( query )
         with st.chat_message("user",avatar="💬"): st.markdown(query_edited)
         # Retrieve and stream the LLM response from the API
+        # Only hand off the last four messages in the chat history (two for the user, two for the bot).
         # The use of placeholder and empty() are tricks to be able to render markup while streaming:
         # as each new token arrives, we replace and re-render the entire message up to this point,
         # so that any closing delimiters are correctly paired with opening delimiters when they arrive,
         # and the raw text printed up to this point is replaced with correctly rendered markdown.
-        json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history}
+        json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history[-2:]}
         response_message = st.chat_message("bot",avatar="✨") 
         response_placeholder = response_message.empty()
         response_text_raw = ""
-        api_response = generate_tokens(json_payload)
+        api_response = generate_tokens(json_payload,course_selection['api_port'])
         with response_placeholder, st.spinner("Thinking..."):
             for token in api_response:
                 response_text_raw += token

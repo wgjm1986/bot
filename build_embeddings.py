@@ -1,30 +1,31 @@
-import sys re os
+import sys, os, openai, sqlite3, json
+
+import numpy as np
 
 from glob import glob
 from multiprocessing import Pool
 from datetime import datetime
-
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-
-import openai
-import sqlite3
-import numpy as np
-
-import concurrent
 from concurrent.futures import ThreadPoolExecutor
+
+from text_tools import get_document_paragraphs, chunk_paragraphs
 
 client = openai.OpenAI()
 
-extensions = ["pdf","tex","docx","pptx"]
-# filenames = ['/efs/FIN323/syllabus.pdf'] \
-#   + [filename for filename in glob(f"/efs/FIN323/Module 2/**/*.pdf",recursive=True)]
-filenames = ['/efs/FIN323/syllabus.pdf'] \
-    + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Exam */**/*.{ext}",recursive=True)] \
-    + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Module */**/*.{ext}",recursive=True)]
-#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Discussion/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Transcripts/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Corporate finance slides/**/*.{ext}",recursive=True)] \
-#   + [filename for ext in extensions for filename in glob(f"/efs/FIN323/Textbook/**/*.{ext}",recursive=True)]
+# Import course settings based on parameter passed
+with open('courses.json','r') as courses_file: 
+    course_data = json.load(courses_file).get( sys.argv[1] ,{})
+if not course_data: raise ValueError(f"No course data found for {sys.argv[1]}")
+
+db_path = course_data['db_file']
+db_temp_path = db_path + '.tmp'
+db_folder = course_data['db_folder']
+
+if os.path.exists(db_temp_path):
+        os.remove(db_temp_path)
+        print(f"Deleted existing database file: {db_temp_path}")
+
+extensions = ["pdf","tex","docx","pptx","ipynb"]
+filenames = [filename for ext in extensions for filename in glob(f"{db_folder}/**/*.{ext}",recursive=True)]
 
 print("Num files: " + str(len(filenames)))
 
@@ -35,10 +36,6 @@ def get_slide_text(slide):
             slide_text_chunks.append(shape.text+' ')
     return '\n'.join(slide_text_chunks)
 
-db_temp_path = '/efs/FIN323_tmp.db'
-if os.path.exists(db_temp_path):
-        os.remove(db_temp_path)
-        print(f"Deleted existing database file: {db_temp_path}")
 conn = sqlite3.connect(db_temp_path)
 cursor = conn.cursor()
 cursor.execute('''
@@ -61,7 +58,6 @@ cursor.execute('''
 conn.commit()
 conn.close()
 
-text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=50, add_start_index=True)
 
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
 
@@ -70,22 +66,27 @@ def process_file(filename):
     if os.path.getsize(filename) > 1e6:
         print(filename+": above 1M, skipping")
         return
-    document_text = get_document_text(filename)
+    document_paragraphs = get_document_paragraphs(filename,10) # second argument is the max number of pages to read from each PDF
+    document_text = '\n\n'.join(document_paragraphs)
     if not document_text:
-        print(filename+"get_document_text returned null, skipping")
+        print(filename+"get_document_paragraphs returned null, skipping")
         return
     if type(document_text) is not str:
-        print(filename+"get_document_text returned non-string, skipping")
+        print(filename+"get_document_paragraphs returned non-string, skipping")
         return
-    chunks = text_splitter.split_text( document_text )
-    chunks = [chunk for chunk in chunks if re.search('[A-Za-z]',chunk)]
-    for chunk in chunks: chunk = re.sub('\t',' ',chunk)
-    for chunk in chunks: chunk = re.sub(' +',' ',chunk)
-    if not chunks: 
-        print(filename+"get_document_text returned no text chunks, skipping")
-        return
+    chunks = chunk_paragraphs(document_paragraphs)
     # Get document description
-    description_prompt = "Please reply with a short description for the document below (30 words or fewer). Your description does not need to be a complete sentence. It should consist only of ASCII characters with no tabs, newlines, or form feeds. Be sure to mention any authors, and the year of publication, is you can find them. If the document is an exam, specify the semester, and which exam it was (first midterm, second midterm, final exam, etc.). Then at the end of the same line, list 5 or fewer keywords for the document's content."
+    description_prompt = f"I am indexing documents for a college course on {course_data['topic']}."
+    description_prompt += """
+    If the document below is irrelevant to that topic, or does not have enough content to be worth using in the course, reply with "Irrelevant".
+    Otherwise, please reply with a short description of the document (30 words or fewer). 
+    Your description does not need to be a complete sentence. 
+    It should consist only of ASCII characters with no tabs, newlines, or form feeds. 
+    Be sure to mention any authors, and the year of publication, is you can find them. 
+    If the document is an exam, specify the semester, and which exam it was (first midterm, second midterm, final exam, etc.). 
+    Finally, list 5 or fewer keywords for the document's content.
+    Your entire response should be one line.
+    """
     client = openai.OpenAI()
     if len(document_text) > 5000: document_text = document_text[0:5000]
     description_messages = [{"role":"system","content":description_prompt} , {"role":"user","content":document_text}]
@@ -114,7 +115,7 @@ def process_file(filename):
     doc_id = cursor.lastrowid
     for chunk, embedding_bytes in zip(chunks, embedding_bytes_list):
         cursor.execute('''
-            INSERT INTO chunks (doc_id, chunk_text,embedding) VALUES (?, ?, ?)
+            INSERT INTO chunks (doc_id, chunk_text, embedding) VALUES (?, ?, ?)
         ''', (doc_id, chunk, embedding_bytes) )
     conn.commit()
     conn.close()
@@ -124,10 +125,10 @@ def process_file(filename):
 # The filename that caused the error will just be missing from the final output.
 # To catch and display these errors requires much more complicated syntax.
 # What I should really do is handle and log exceptions within process_file().
-with ThreadPoolExecutor(max_workers=7) as executor:
+with ThreadPoolExecutor(max_workers=16) as executor:
     executor.map(process_file, filenames)
 
 print(f"Finished importing documents: {datetime.now():%H:%M:%S}")
 
 ## Now that the database construction has ended successfully, overwrite the existing one (if present)
-os.rename(db_temp_path,'/efs/FIN323.db')
+os.rename(db_temp_path,db_path)
