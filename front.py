@@ -117,7 +117,6 @@ def main():
         course_selection_key = course_dict_reverse[st.session_state.course_selection_description]
         course_selection = course_dict[course_selection_key]
 
-
     # Truncate chat history to last 6 messages (three each from the student and the assistant).
     if len(st.session_state.chat_history) > 6:
         st.session_state.chat_history = st.session_state.chat_history[-6:]
@@ -136,13 +135,12 @@ def main():
         # Display user query
         query_edited = format_latex( query )
         with st.chat_message("user",avatar="💬"): st.markdown(query_edited)
-        # Retrieve and stream the LLM response from the API
-        # Only hand off the last four messages in the chat history (two for the user, two for the bot).
+        # Retrieve and stream the LLM response from the API.
         # The use of placeholder and empty() are tricks to be able to render markup while streaming:
         # as each new token arrives, we replace and re-render the entire message up to this point,
         # so that any closing delimiters are correctly paired with opening delimiters when they arrive,
         # and the raw text printed up to this point is replaced with correctly rendered markdown.
-        json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history[-2:]}
+        json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history}
         response_message = st.chat_message("bot",avatar="✨") 
         response_placeholder = response_message.empty()
         response_text_raw = ""
