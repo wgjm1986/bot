@@ -80,22 +80,43 @@ def main():
     # Create reverse lookup dictionary
     course_dict_reverse = { course['number']+": "+course['title'] : key for key,course in course_dict.items() }
 
+    def reset_chat_history():
+        if st.session_state.course_selection_description == "No selection made":
+            welcome_message = "Welcome! To get started, please select a course from the dropdown menu to the left."
+            st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
+        else:
+            course_selection_key = course_dict_reverse[st.session_state.course_selection_description]
+            course_selection = course_dict[course_selection_key]
+            welcome_message = f"""
+            Hello, human! I am the virtual TA for the course {course_selection['number']}: {course_selection['title']}, taught by {course_selection['instructor']}.
+            Currently, I am still in development, so you should carefully check my answers against what you have learned in class.
+            However, I will do my very best to help answer your questions, so ask away!
+            
+            For example, you can ask for an explanation of questions from past exams, material from class, or reviewing terms that may not be familiar.
+            You can also speak to me in any language, and ask for translations of any course material into different languages!
+            """
+            st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
+
     with st.sidebar:
-        course_selection_description = st.selectbox("Choose your course:", list( course_dict_reverse.keys() ) )
-        course_selection_key = course_dict_reverse[course_selection_description]
+        st.selectbox(
+            "Choose your course:",
+            ["No selection made"] + list( course_dict_reverse.keys()),
+            key='course_selection_description',
+            on_change=reset_chat_history
+        )
+
+    # Initialize course selection if it exists:
+    if 'course_selection_description' not in st.session_state:
+        st.session_state.course_selection_description = "No selection made"
+        welcome_message = "Welcome! To get started, please select a course from the dropdown menu to the left."
+        st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
+    elif st.session_state.course_selection_description == "No selection made":
+        welcome_message = "Welcome! To get started, please select a course from the dropdown menu to the left."
+        st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
+    else:
+        course_selection_key = course_dict_reverse[st.session_state.course_selection_description]
         course_selection = course_dict[course_selection_key]
 
-    # If there is no chat history, display welcome message:
-    if "chat_history" not in st.session_state:
-        welcome_message = f"""
-        Hello, human! I am the virtual TA for the course {course_selection['number']}: {course_selection['title']} at Goizueta.
-        Currently, I am still in development, so you should carefully check my answers against what you have learned in class.
-        However, I will do my very best to help answer your questions, so ask away!
-        
-        For example, you can ask for an explanation of questions from past exams, material from class, or reviewing terms that may not be familiar.
-        You can also speak to me in any language, and ask for translations of any course material into different languages!
-        """
-        st.session_state.chat_history = [{"role":"assistant","content":welcome_message}]
 
     # Truncate chat history to last 6 messages (three each from the student and the assistant).
     if len(st.session_state.chat_history) > 6:

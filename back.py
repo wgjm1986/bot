@@ -112,15 +112,16 @@ def document_prompt(query,chat_history_messages):
     helper_query_messages = ( [{"role":"system","content":helper_query_system_string + document_descriptions_string}] 
                                 + annotated_messages 
                                 + [{"role":"user","content":annotated_query}] )
-    print("############## SENDING FIRST PROMPT")
+    # print("############## SENDING FIRST PROMPT")
     helper_query_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=helper_query_messages,
         max_tokens=100,
         stream=False
     )
-    print("############## RESPONSE RECEIVED")
+    # print("############## RESPONSE RECEIVED")
 
+    print("Usage statistics, first prompt:")
     input_tokens = helper_query_response.usage.prompt_tokens
     print(f'          {input_tokens} input tokens used,')
     output_tokens = helper_query_response.usage.completion_tokens
@@ -175,15 +176,16 @@ def keyword_prompt(query,chat_history_messages,document_choice):
         + query)
 
     helper_query_messages = [{"role":"system","content":helper_query_string+context_string}] + annotated_messages + [{"role":"user","content":annotated_query}]
-    print("############## SENDING SECOND PROMPT")
+    # print("############## SENDING SECOND PROMPT")
     helper_query_response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=helper_query_messages,
         max_tokens=100,
         stream=False
     )
-    print("############## RESPONSE RECEIVED")
+    # print("############## RESPONSE RECEIVED")
 
+    print("Usage statistics, second prompt:")
     input_tokens = helper_query_response.usage.prompt_tokens
     print(f'          {input_tokens} input tokens used,')
     output_tokens = helper_query_response.usage.completion_tokens
@@ -201,7 +203,7 @@ def query_LLM(query,chat_history_messages):
 
     # Prompt 1: Have the LLM request a course document that would be useful.
     document_choice = document_prompt(query,chat_history_messages)
-    print(document_choice)
+    # print(document_choice)
     if document_choice != no_selection_text and document_choice != no_selection_text.rstrip('.'):
         try:
             document_paragraphs = get_document_paragraphs(document_choice)
@@ -209,7 +211,7 @@ def query_LLM(query,chat_history_messages):
             context_string += "Here is the course document that you already selected as being most useful to answer the student's question:\n"+document_choice+'\n'+document_text+'\n'
         except FileNotFoundError:
             pass
-    print(context_string)
+    # print(context_string)
 
     # Prompt 2: Have the LLM request keywords that would be useful in semantic search, given the document it already chose.
     keywords = keyword_prompt(query,chat_history_messages,document_choice)
@@ -227,7 +229,7 @@ def query_LLM(query,chat_history_messages):
     )
 
     ai_answer_query_messages = [{"role":"system","content":ai_answer_query_system_string+context_string}] + chat_history_messages + [{"role":"user","content":query}]
-    print("############ SENDING THIRD PROMPT")
+    # print("############ SENDING THIRD PROMPT")
     ai_response_stream = client.chat.completions.create(
         model="gpt-4o",
         messages=ai_answer_query_messages,
@@ -235,12 +237,13 @@ def query_LLM(query,chat_history_messages):
         stream=True,
         stream_options={"include_usage":True}
     )
-    print("############ RESPONSE RECEIVED")
+    # print("############ RESPONSE RECEIVED")
 
     # Retrieve just the text from each chunk in the response stream, serialize with JSON, and yield it as output
     for chunk in ai_response_stream:
         # With include_usage set to true above, an extra token is added to the end of the stream to give usage statistics
         if chunk.usage:
+            print("Usage statistics, third prompt:") 
             print(f"          Prompt tokens used: {chunk.usage.prompt_tokens}") 
             print(f"          Completion tokens used: {chunk.usage.completion_tokens}") 
             print(f"          Total tokens used: {chunk.usage.total_tokens}") 
