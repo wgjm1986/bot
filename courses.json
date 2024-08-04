@@ -1,0 +1,20 @@
+{
+  "FIN323": {
+    "number":     "FIN 323",
+    "title":      "Investments",
+    "topic":      "investments",
+    "instructor": "Professor Mann",
+    "db_file":    "/efs/FIN323.db",
+    "db_folder":  "/efs/FIN323",
+    "api_port":   "5000"
+  },
+  "FIN657": {
+    "number":     "FIN 657",
+    "title":      "Financial econometrics",
+    "topic":      "financial econometrics",
+    "instructor": "Professor Mann",
+    "db_file":    "/efs/FIN657.db",
+    "db_folder":  "/efs/FIN657",
+    "api_port":   "5001"
+  }
+}
