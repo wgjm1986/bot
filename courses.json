@@ -16,5 +16,14 @@
     "db_file":    "/efs/FIN657.db",
     "db_folder":  "/efs/FIN657",
     "api_port":   "5001"
+  },
+  "ACT512": {
+    "number":     "ACT 512",
+    "title":      "Financial reporting and analysis",
+    "topic":      "financial reporting and analysis",
+    "instructor": "Professor Sridharan",
+    "db_file":    "/efs/ACT512.db",
+    "db_folder":  "/efs/ACT512",
+    "api_port":   "5002"
   }
 }

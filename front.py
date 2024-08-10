@@ -118,42 +118,43 @@ def main():
         course_selection = course_dict[course_selection_key]
 
     # Truncate chat history to last 6 messages (three each from the student and the assistant).
-    if len(st.session_state.chat_history) > 6:
-        st.session_state.chat_history = st.session_state.chat_history[-6:]
-
-    # Print chat history to screen.
-    for message in st.session_state.chat_history:
-        if message['role'] == "user":
-            with st.chat_message("user",avatar="💬"):
-                st.markdown(message['content'])
-        elif message['role'] == "assistant":
-            with st.chat_message("bot",avatar="✨"):
-                st.markdown(message['content'])
+    if 'chat_history' in st.session_state:
+        if len(st.session_state.chat_history) > 6:
+            st.session_state.chat_history = st.session_state.chat_history[-6:]
+        # Print chat history to screen.
+        for message in st.session_state.chat_history:
+            if message['role'] == "user":
+                with st.chat_message("user",avatar="💬"):
+                    st.markdown(message['content'])
+            elif message['role'] == "assistant":
+                with st.chat_message("bot",avatar="✨"):
+                    st.markdown(message['content'])
     
     # Accept and print user query, retrieve and print LLM response via API
-    if query := st.chat_input("Enter your question for the virtual TA"):
-        # Display user query
-        query_edited = format_latex( query )
-        with st.chat_message("user",avatar="💬"): st.markdown(query_edited)
-        # Retrieve and stream the LLM response from the API.
-        # The use of placeholder and empty() are tricks to be able to render markup while streaming:
-        # as each new token arrives, we replace and re-render the entire message up to this point,
-        # so that any closing delimiters are correctly paired with opening delimiters when they arrive,
-        # and the raw text printed up to this point is replaced with correctly rendered markdown.
-        json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history}
-        response_message = st.chat_message("bot",avatar="✨") 
-        response_placeholder = response_message.empty()
-        response_text_raw = ""
-        api_response = generate_tokens(json_payload,course_selection['api_port'])
-        with response_placeholder, st.spinner("Thinking..."):
-            for token in api_response:
-                response_text_raw += token
-                response_text_edited = format_latex(response_text_raw)
-                response_placeholder.markdown(response_text_edited)
-        response_placeholder.markdown(response_text_edited)
-        # Add both messages to conversation history
-        st.session_state.chat_history.append({"role":"user","content":query_edited})
-        st.session_state.chat_history.append({"role":"assistant","content":response_text_edited})
+    if 'course_selection_description' in st.session_state and st.session_state.course_selection_description != "No selection made":
+        if query := st.chat_input("Enter your question for the virtual TA"):
+            # Display user query
+            query_edited = format_latex( query )
+            with st.chat_message("user",avatar="💬"): st.markdown(query_edited)
+            # Retrieve and stream the LLM response from the API.
+            # The use of placeholder and empty() are tricks to be able to render markup while streaming:
+            # as each new token arrives, we replace and re-render the entire message up to this point,
+            # so that any closing delimiters are correctly paired with opening delimiters when they arrive,
+            # and the raw text printed up to this point is replaced with correctly rendered markdown.
+            json_payload = {'query':query,'chat_history_messages':st.session_state.chat_history}
+            response_message = st.chat_message("bot",avatar="✨") 
+            response_placeholder = response_message.empty()
+            response_text_raw = ""
+            api_response = generate_tokens(json_payload,course_selection['api_port'])
+            with response_placeholder, st.spinner("Thinking..."):
+                for token in api_response:
+                    response_text_raw += token
+                    response_text_edited = format_latex(response_text_raw)
+                    response_placeholder.markdown(response_text_edited)
+            response_placeholder.markdown(response_text_edited)
+            # Add both messages to conversation history
+            st.session_state.chat_history.append({"role":"user","content":query_edited})
+            st.session_state.chat_history.append({"role":"assistant","content":response_text_edited})
 
 if __name__ == '__main__':
     main()

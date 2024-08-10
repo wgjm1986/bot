@@ -1,4 +1,8 @@
 import docx, pptx, odf, csv, re, json, spacy
+import boto3
+from PIL import Image
+from io import BytesIO
+from openpyxl import load_workbook
 from odf.opendocument import load
 from odf import text
 from odf import teletype
@@ -46,9 +50,54 @@ def get_document_paragraphs(file_path,last_pdf_page=None):
         document_paragraphs = docx.Document(file_path).paragraphs
         return document_paragraphs
     elif extension == ".pptx":
-        pres = pptx.Presentation(file_path)
-        document_paragraphs = [get_slide_text(slide) for slide in pres.slides]
+        textract = boto3.client('textract',region_name='us-east-1')
+        presentation = pptx.Presentation(file_path)
+        document_paragraphs = []
+        for slide in presentation.slides:
+            slide_shapes_text = []
+            for shape in slide.shapes:
+                if hasattr(shape,"text"):
+                    slide_shapes_text.append(shape.text)
+                # if shape.shape_type == pptx.enum.shapes.MSO_SHAPE_TYPE.PICTURE:
+                #     image_stream = shape.image.blob
+                #     image = Image.open(BytesIO(image_stream))
+                #     buffered = BytesIO()
+                #     image.save(buffered,format="PNG")
+                #     image_bytes = buffered.getvalue()
+                #     response = textract.detect_document_text(Document={'Bytes':image_bytes})
+                #     image_text = []
+                #     for item in response['Blocks']:
+                #         if item['BlockType'] == 'LINE':
+                #             image_text.append(item['Text'])
+                #     if image_text.strip():
+                #         slide_shapes_text.append(image_text)
+            slide_text = '\n'.join(slide_shapes_text)
+            document_paragraphs.append(slide_text)
         return document_paragraphs
+    elif extension == ".xlsx":
+        workbook_values = load_workbook(filename=file_path,data_only=True)
+        # with data_only=False, cell.value will be a formula when there is one (otherwise a value as above)
+        workbook_formulas = load_workbook(filename=file_path,data_only=False)
+        sheets = []
+        for sheet_name in workbook_values.sheetnames:
+            output_lines = []
+            sheet_values = workbook_values[sheet_name]
+            sheet_formulas = workbook_formulas[sheet_name]
+            output_lines.append(f"This is a sheet from an xlsx file. The sheet name is {sheet_name}.\nEach non-empty cell in the sheet is listed below along with its value, and its formula if any.")
+            for row in sheet_values.iter_rows():
+                row_data = []
+                for cell in row:
+                    cell_value = cell.value
+                    cell_formula = sheet_formulas[cell.coordinate].value
+                    if cell_value is None and cell_formula is None: continue
+                    cell_label = f"{cell.coordinate}: Value: {cell_value}"
+                    if cell_formula != cell_value: cell_label += f", Formula: {cell_formula}"
+                    row_data.append(cell_label)
+                if row_data:
+                    output_lines.append(" | ".join(str(item) if item is not None else '' for item in row_data))
+            if output_lines: sheets.append('\n'.join(output_lines))
+        # For now, treat each sheet as a paragraph. May need to modify this depending on how big the output is
+        return sheets
     elif extension == ".odt":
         document = load(file_path)
         document_paragraphs_raw = document.getElementsByType(text.P)

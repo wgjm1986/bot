@@ -80,9 +80,9 @@ def document_prompt(query,chat_history_messages):
     "Instead, you are helping me build a prompt to a different LLM that will answer the question. "
     "This LLM will not know anything about my course except the information that you choose to provide! "
     "\n\nBelow I will give you the student's conversation with the TA so far, and the question they just asked. "
-    "Then I will give you a list of course documents, where the first line is the filename, and the second line is a short description of the document along with some keywords. "
-    "You should select the filename of the document that would be most useful to the LLM in providing the next message in the conversation.  "
-    "Reply with only that filename, and do not enclose it in quotes of any kind. "
+    "Then I will give you a list of course documents, where the first line is the file path, and the second line is a short description of the document along with some keywords. "
+    "You should select the file path of the document that would be most useful to the LLM in providing the next message in the conversation.  "
+    "Reply with only the file path, exactly as I wrote it, with no quotes or other special characters. "
     "\n\nPlease remember that the LLM is not the TA, and will not know ANYTHING about the course except the document you select!  "
     "Therefore, if the student and the TA have been discussing a specific course document and the student has asked another question about it,  "
     "then you should choose that document from the list so that the LLM will understand the conversation so far.  ")
@@ -130,7 +130,8 @@ def document_prompt(query,chat_history_messages):
     print(f'          {total_tokens} total tokens used.')
 
     helper_query_response_string = helper_query_response.choices[0].message.content
-    document_choice = helper_query_response_string.strip().strip('.`\"\'')
+    document_choice = helper_query_response_string.strip().strip('#.`\"\'')
+    print(document_choice)
 
     return document_choice
 

@@ -24,7 +24,7 @@ if os.path.exists(db_temp_path):
         os.remove(db_temp_path)
         print(f"Deleted existing database file: {db_temp_path}")
 
-extensions = ["pdf","tex","docx","pptx","ipynb"]
+extensions = ["pdf","tex","docx","pptx","ipynb","xlsx"]
 filenames = [filename for ext in extensions for filename in glob(f"{db_folder}/**/*.{ext}",recursive=True)]
 
 print("Num files: " + str(len(filenames)))
@@ -62,11 +62,11 @@ conn.close()
 print(f"Importing documents: {datetime.now():%H:%M:%S}")
 
 def process_file(filename):
-    # This is not only to save time, but also to cut down on token usage
-    if os.path.getsize(filename) > 1e6:
-        print(filename+": above 1M, skipping")
-        return
-    document_paragraphs = get_document_paragraphs(filename,10) # second argument is the max number of pages to read from each PDF
+    # # This is optional, not only to save time, but also to cut down on token usage
+    # if os.path.getsize(filename) > 1e6:
+    #     print(filename+": above 1M, skipping")
+    #     return
+    document_paragraphs = get_document_paragraphs(filename, 20) # second argument is the max number of pages to read from each PDF
     document_text = '\n\n'.join(document_paragraphs)
     if not document_text:
         print(filename+"get_document_paragraphs returned null, skipping")
